@@ -1,0 +1,86 @@
+name: Actions 😎
+
+on: [push, pull_request]
+env:
+  ITCH_USERNAME: chrisashtear
+  ITCH_GAME_ID: ld50
+  ITCH_URL: "https://chrisashtear.itch.io/ld50"
+jobs:
+  build:
+    name: Build for ${{ matrix.targetPlatform }} ✨
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform:
+          - StandaloneWindows # Build a Windows standalone.
+          - WebGL # WebGL.
+    steps:
+      # Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          lfs: true
+
+      # Cache
+      - uses: actions/cache@v2
+        with:
+          path: Library
+          key: Library-${{ matrix.targetPlatform }}
+          restore-keys: |
+            Library-
+
+      # Test
+      #- name: Run tests
+      #  uses: game-ci/unity-test-runner@v2
+      #  env:
+      #    UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      #  with:
+      #    githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build
+      - name: Build project
+        uses: game-ci/unity-builder@v2
+        id: build
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: ${{ matrix.targetPlatform }}
+          allowDirtyBuild: true
+      #run: echo 'Project Version: ${{ steps.build.outputs.buildVersion }}'
+      # Output
+      - uses: actions/upload-artifact@v2
+        with:
+          name: Build
+          path: build
+      #- uses: actions/download-artifact@v2.0.8
+      #  with:
+      #    name: Build
+      #    path: build/WebGL
+      - uses: KikimoraGames/itch-publish@v0.0.3
+        with:
+          butlerApiKey: ${{secrets.BUTLER_API_KEY}}
+          gameData: build
+          itchUsername: ${{env.ITCH_USERNAME}}
+          itchGameId: ${{ env.ITCH_GAME_ID }}
+          buildChannel: ${{ matrix.targetPlatform }}
+          buildNumber: ${{ needs.version.outputs.version_hash }}
+      - name: Discord notification
+        uses: Ilshidur/action-discord@master
+        env: 
+            DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+            args: 'The project {{ EVENT_PAYLOAD.repository.full_name }} ${{ matrix.targetPlatform }} has been deployed. Result: ${{ needs.build.result}}. Play it here: ${{ env.ITCH_URL }}'
+     
+    #remove file when done   
+  cleanup:
+    name: Delete Files
+    runs-on: self-hosted
+    needs: [build]
+ #   if: always() && (needs.build.result == 'failure')
+    steps:
+        - uses: geekyeggo/delete-artifact@v1
+          with:
+            name: Build
